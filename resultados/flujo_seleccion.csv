@@ -1,0 +1,8 @@
+paso,quedan
+nódulos agrupados (todas las tomografías),2651
+excluir: espesor > 2.5 mm,2291
+excluir: agrupación ambigua (> 4 anotaciones),2278
+excluir: < 3 radiólogos,1179
+excluir: no sólido,1049
+excluir: < 6 mm,953
+excluir: malignidad intermedia,431

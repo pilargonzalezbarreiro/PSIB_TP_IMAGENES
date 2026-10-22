@@ -1,0 +1,9 @@
+numpy
+scipy
+scikit-image>=0.22
+pandas
+matplotlib
+pydicom
+Pillow
+pylidc
+idc-index

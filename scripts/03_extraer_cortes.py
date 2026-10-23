@@ -28,7 +28,7 @@ def main():
         scan = pl.query(pl.Scan).filter(pl.Scan.id == int(scan_id)).first()
         try:
             scan.get_path_to_dicom_files()
-        except Exception:
+        except (RuntimeError, IOError):  # esta serie no se descargó
             falta += len(grupo_scan)
             continue
         nodulos = scan.cluster_annotations()

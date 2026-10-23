@@ -15,6 +15,31 @@ for _alias, _tipo in (("int", int), ("bool", bool), ("float", float)):
     if not hasattr(np, _alias):
         setattr(np, _alias, _tipo)
 
+# pylidc usa configparser.SafeConfigParser para leer ~/.pylidcrc; ese nombre
+# viejo se eliminó en Python 3.12 (era un alias de ConfigParser).
+if not hasattr(configparser, "SafeConfigParser"):
+    configparser.SafeConfigParser = configparser.ConfigParser
+
+# pylidc también hace `import pkg_resources` (parte de setuptools) solo para
+# encontrar su archivo pylidc.sqlite. Desde Python 3.12 los entornos virtuales
+# nuevos ya no traen setuptools, y las versiones nuevas de setuptools quitaron
+# pkg_resources. Si no está, armamos un reemplazo mínimo con lo único que usa.
+try:
+    import pkg_resources  # noqa: F401
+except ImportError:
+    import importlib.util
+    import sys
+    import types
+
+    _pr = types.ModuleType("pkg_resources")
+
+    def _resource_filename(paquete, recurso):
+        carpeta = Path(importlib.util.find_spec(paquete).origin).parent
+        return str(carpeta / recurso)
+
+    _pr.resource_filename = _resource_filename
+    sys.modules["pkg_resources"] = _pr
+
 
 def archivo_config_pylidc() -> Path:
     nombre = "pylidc.conf" if platform.system() == "Windows" else ".pylidcrc"

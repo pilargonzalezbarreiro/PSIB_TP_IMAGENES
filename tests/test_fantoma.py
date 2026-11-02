@@ -7,7 +7,7 @@ diferencias. Sirve para verificar que el código hace lo que creemos: por
 ejemplo, la circularidad tiene que dar más baja en los espiculados.
 
 Uso:  python tests/test_fantoma.py
-      python scripts/05_caracteristicas.py --carpeta tests/salida/cortes --meta tests/salida/meta.csv
+      python scripts/04_caracteristicas.py --carpeta tests/salida/cortes --meta tests/salida/meta.csv
 """
 import sys
 from pathlib import Path
@@ -21,7 +21,7 @@ from scipy import ndimage as ndi  # noqa: E402
 from tpi.caracteristicas import caracteristicas_interior  # noqa: E402
 from tpi.datos import guardar_corte, preparar_corte  # noqa: E402
 from tpi.entorno import caracteristicas_entorno, mascara_pulmon  # noqa: E402
-from tpi.segmentacion import crecimiento_regiones  # noqa: E402
+from tpi.segmentacion import segmentar_nodulo  # noqa: E402
 from tpi.validacion import evaluar  # noqa: E402
 
 SALIDA = Path(__file__).resolve().parent / "salida"
@@ -47,7 +47,7 @@ def forma_nodulo(cr, cc, radio_px, sospechoso, rng):
     return m
 
 
-def fantoma(sospechoso, rng):
+def fantoma(sospechoso, rng, yuxtapleural=False):
     rr, cc = np.mgrid[:N, :N]
     img = np.full((N, N), -1000.0)
     cuerpo = ((rr - 256) / 200) ** 2 + ((cc - 256) / 240) ** 2 <= 1
@@ -65,6 +65,12 @@ def fantoma(sospechoso, rng):
     # nódulo dentro del pulmón izquierdo de la imagen
     radio_mm = rng.uniform(4, 11) if not sospechoso else rng.uniform(6, 14)
     cr, cc0 = 250 + rng.integers(-60, 60), 160 + rng.integers(-25, 25)
+    if yuxtapleural:
+        # pegado a la pared lateral: el centro queda sobre el borde del pulmón,
+        # así la mitad del nódulo toca tejido blando de la misma densidad
+        cr = 250 + rng.integers(-40, 40)
+        borde = 160 - 80 * np.sqrt(max(1 - ((cr - 250) / 160) ** 2, 0))
+        cc0 = int(borde + 0.3 * radio_mm / PX)
     m = forma_nodulo(cr, cc0, radio_mm / PX, sospechoso, rng)
     img[m] = rng.uniform(-30, 50) + (rng.normal(0, 40, m.sum()) if sospechoso else 0)
     if not sospechoso and rng.random() < 0.5:  # calcificación central
@@ -74,6 +80,8 @@ def fantoma(sospechoso, rng):
     img = ndi.gaussian_filter(img, 1.0) + rng.normal(0, 15, img.shape)
     # "radiólogos": cuerpo del nódulo (sin espículas finas) con variaciones
     cuerpo_nod = ndi.binary_opening(m, iterations=2)
+    if yuxtapleural:  # el radiólogo dibuja solo la parte que sobresale hacia el pulmón
+        cuerpo_nod &= pulmones[0]
     rads = []
     for _ in range(4):
         op = rng.choice(["nada", "dilatar", "erosionar"])
@@ -94,15 +102,16 @@ def main(n_por_grupo=6):
     k = 0
     for grupo in ("benigno", "sospechoso"):
         for _ in range(n_por_grupo):
-            img, cons, rads = fantoma(grupo == "sospechoso", rng)
+            yuxta = k % 3 == 2  # uno de cada tres, pegado a la pared
+            img, cons, rads = fantoma(grupo == "sospechoso", rng, yuxtapleural=yuxta)
             d = preparar_corte(img, PX, cons, rads)
             nombre = f"FANTOMA-{k:04d}_s{k}_n0"
             guardar_corte(SALIDA / "cortes" / f"{nombre}.npz", d)
             meta.append(dict(paciente=f"FANTOMA-{k:04d}", scan_id=k, nodulo=0, grupo=grupo,
                              conjunto="entrenamiento", malignidad_mediana=5 if grupo == "sospechoso" else 1,
-                             diametro_medio_mm=np.nan))
+                             diametro_medio_mm=float(2 * np.sqrt(cons.sum() / np.pi) * PX)))
             # chequeos rápidos
-            seg = crecimiento_regiones(d["img"], d["semilla"])
+            seg = segmentar_nodulo(d)
             v = evaluar(seg, d["consenso"], d["radiologos"])
             f = caracteristicas_interior(d["img"], seg)
             pul = mascara_pulmon(d["corte_completo_rem"])
@@ -110,7 +119,7 @@ def main(n_por_grupo=6):
             assert v["dice"] > 0.6, (nombre, v)
             assert 0 < f["circularidad"] < 1.3
             k += 1
-            print(f"{nombre} {grupo:10s} Dice {v['dice']:.2f} conc {v['concordancia_radiologos']:.2f} "
+            print(f"{nombre} {grupo:10s} {'pared ' if yuxta else '      '}Dice {v['dice']:.2f} conc {v['concordancia_radiologos']:.2f} "
                   f"circ {f['circularidad']:.2f} solidez {f['solidez']:.2f} calcio {f['frac_calcio']:.2f}")
     pd.DataFrame(meta).to_csv(SALIDA / "meta.csv", index=False)
     print("OK fantoma ->", SALIDA)

@@ -70,3 +70,50 @@ def boxplots(df, medidas, ruta=None):
         fig.savefig(ruta, dpi=150)
         plt.close(fig)
     return fig
+
+
+def estimar_ruido_hu(img):
+    """Ruido ≈ desvío del residuo (imagen - suavizada) en el parénquima
+    (zona casi uniforme, HU entre -950 y -700). Se usa la MAD (desvío robusto)
+    para que los vasos no inflen la estimación."""
+    from scipy import ndimage as ndi
+    res = img - ndi.gaussian_filter(img, 2)
+    m = (img > -950) & (img < -700)
+    if m.sum() < 50:
+        return np.nan
+    r = res[m]
+    return float(1.4826 * np.median(np.abs(r - np.median(r))))
+
+
+def figura_analisis(cortes, ruta=None):
+    """Paso de ANÁLISIS de la materia: antes de segmentar, mirar los
+    histogramas. Cada línea es el histograma de la región de 64 mm de un
+    nódulo: si son bimodales (aire del pulmón vs tejido) se justifica separar
+    por umbral; el umbral de Otsu de cada uno se marca abajo."""
+    from skimage.filters import threshold_otsu
+    fig, axs = plt.subplots(1, 2, figsize=(12, 3.6))
+    bins = np.linspace(-1100, 500, 81)
+    otsus, ruidos = [], []
+    for d in cortes:
+        h, _ = np.histogram(d["img"], bins=bins, density=True)
+        axs[0].plot((bins[:-1] + bins[1:]) / 2, h, alpha=0.5, lw=1)
+        otsus.append(threshold_otsu(np.clip(d["img"], -1000, 400)))
+        ruidos.append(estimar_ruido_hu(d["img"]))
+    axs[0].set_yscale("log")
+    axs[0].plot(otsus, np.full(len(otsus), axs[0].get_ylim()[0] * 1.5), "k|", ms=12, label="umbral de Otsu")
+    for v, t in ((-850, "pulmón"), (0, "tejido")):
+        axs[0].axvline(v, color="gray", ls=":")
+        axs[0].text(v + 15, axs[0].get_ylim()[1] * 0.3, t, fontsize=8)
+    axs[0].set_xlabel("HU")
+    axs[0].set_title("Histogramas de las regiones (uno por nódulo): bimodales")
+    axs[0].legend(fontsize=8)
+    axs[1].hist([r for r in ruidos if np.isfinite(r)], bins=12, color="gray")
+    axs[1].set_xlabel("ruido estimado en el parénquima (HU)")
+    axs[1].set_title("Ruido de las imágenes originales (granulado)")
+    fig.tight_layout()
+    if ruta:
+        fig.savefig(ruta, dpi=150)
+        plt.close(fig)
+    print(f"Análisis: Otsu medio {np.mean(otsus):.0f} HU (rango {np.min(otsus):.0f} a {np.max(otsus):.0f}); "
+          f"ruido mediano en parénquima {np.nanmedian(ruidos):.0f} HU")
+    return fig

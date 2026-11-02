@@ -9,6 +9,14 @@ Salidas:
   figuras/01_contextualizacion.png
 
 Uso:  python scripts/01_seleccionar_nodulos.py [--max-pacientes 80]
+      python scripts/01_seleccionar_nodulos.py --ampliar-tamano 8 16
+
+--ampliar-tamano LO HI: AGREGA a la muestra ya elegida todos los nódulos que
+cumplen los criterios y miden entre LO y HI mm. Sirve para el control por
+tamaño: en LIDC los benignos son casi todos chicos y los sospechosos grandes,
+así que con la muestra original casi no hay nódulos de tamaño parecido en los
+dos grupos. Los pacientes que ya estaban conservan su conjunto
+(entrenamiento/evaluación); los nuevos se reparten 80/20 por paciente.
 """
 import argparse
 import sys
@@ -40,11 +48,43 @@ def submuestrear(df, max_pacientes, semilla=C.SEMILLA):
     return df[df["paciente"].isin(elegidos[:max_pacientes])]
 
 
+def ampliar(todos, lo, hi):
+    ruta = C.DIR_RESULTADOS / "nodulos_seleccionados.csv"
+    respaldo = C.DIR_RESULTADOS / "nodulos_seleccionados_original.csv"
+    sel = pd.read_csv(ruta)
+    if not respaldo.exists():
+        sel.to_csv(respaldo, index=False)
+    if "origen" not in sel:
+        sel["origen"] = "muestra original"
+    elegibles = todos[todos["incluido"]].drop(columns=["incluido", "motivo_exclusion"])
+    en_rango = elegibles[(elegibles.diametro_medio_mm >= lo) & (elegibles.diametro_medio_mm < hi)]
+    ya = set(zip(sel.scan_id, sel.nodulo))
+    nuevos = en_rango[[(s, n) not in ya for s, n in zip(en_rango.scan_id, en_rango.nodulo)]].copy()
+    nuevos["origen"] = f"ampliación {lo:g}-{hi:g} mm"
+    # conjunto: el del paciente si ya estaba; si no, 80/20 estratificado por paciente
+    conj = dict(zip(sel.paciente, sel.conjunto))
+    viejos = nuevos[nuevos.paciente.isin(conj)].assign(conjunto=lambda x: x.paciente.map(conj))
+    resto = nuevos[~nuevos.paciente.isin(conj)]
+    if len(resto):
+        resto = dividir_por_paciente(resto, semilla=C.SEMILLA + 1)
+    total = pd.concat([sel, viejos, resto], ignore_index=True)
+    total.to_csv(ruta, index=False)
+    print(f"Agregados {len(nuevos)} nódulos de {lo:g} a {hi:g} mm "
+          f"({nuevos.series_uid.nunique()} tomografías; {len(set(nuevos.series_uid) - set(sel.series_uid))} nuevas)")
+    print(f"Muestra total: {len(total)} nódulos de {total.paciente.nunique()} pacientes")
+    print(pd.crosstab(total["grupo"], total["conjunto"], margins=True))
+    rango = total[(total.diametro_medio_mm >= lo) & (total.diametro_medio_mm < hi)]
+    print(f"\nEn el rango {lo:g}-{hi:g} mm (para la comparación de tamaño parecido):")
+    print(pd.crosstab(rango["grupo"], rango["conjunto"], margins=True))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--max-pacientes", type=int, default=0,
                     help="0 = todos los que cumplen criterios")
     ap.add_argument("--rehacer", action="store_true", help="recalcular candidatos_todos.csv")
+    ap.add_argument("--ampliar-tamano", nargs=2, type=float, metavar=("LO", "HI"),
+                    help="agregar a la muestra los nódulos elegibles de LO a HI mm")
     args = ap.parse_args()
     C.DIR_RESULTADOS.mkdir(exist_ok=True)
     C.DIR_FIGURAS.mkdir(exist_ok=True)
@@ -56,6 +96,10 @@ def main():
     else:  # recorre las 1018 tomografías (~4 min)
         todos = tabla_candidatos()
         todos.to_csv(cache, index=False)
+
+    if args.ampliar_tamano:
+        ampliar(todos, *args.ampliar_tamano)
+        return
 
     # Flujo de selección (para el informe): se aplican los filtros en orden.
     orden = ["espesor > 2.5 mm", "agrupación ambigua (> 4 anotaciones)", "< 3 radiólogos", "no sólido", "< 6 mm", "malignidad intermedia"]

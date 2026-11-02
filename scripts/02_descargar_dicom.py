@@ -27,7 +27,12 @@ def main():
     args = ap.parse_args()
 
     sel = pd.read_csv(C.DIR_RESULTADOS / "nodulos_seleccionados.csv")
-    series = sel.drop_duplicates("series_uid")
+    # Saltear las tomografías cuyos nódulos ya están extraídos en datos/cortes:
+    # no hace falta volver a bajarlas (aunque se hayan borrado los DICOM).
+    hecho = sel.apply(lambda f: (C.DIR_CORTES / f"{f.paciente}_s{f.scan_id}_n{f.nodulo}.npz").exists(), axis=1)
+    pendientes = sel[~hecho]
+    print(f"Ya extraídos: {int(hecho.sum())} de {len(sel)} nódulos (sus tomografías no se bajan)")
+    series = pendientes.drop_duplicates("series_uid")
     if args.limite:
         # Alternar grupos para que el subconjunto chico tenga de los dos.
         series = (series.assign(_r=series.groupby("grupo").cumcount())

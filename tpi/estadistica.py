@@ -1,27 +1,36 @@
-"""Comparación entre grupos sin modelos entrenados.
+"""Comparación entre grupos (paso "comparación" del pipeline de la materia).
 
-- Mann-Whitney U: no asume normalidad (con ~100 nódulos y medidas como la
-  fracción de calcio, muy asimétricas, una t de Student no corresponde).
-- AUC = U / (n1·n2): probabilidad de que un sospechoso al azar tenga un
-  valor mayor que un benigno al azar. 0,5 = no discrimina. Si da < 0,5 la
-  medida discrimina "al revés" (más baja en sospechosos): reportamos la
-  dirección y max(AUC, 1-AUC).
-- Holm: con ~40 medidas, al 5 % esperaríamos ~2 "significativas" por azar.
-  Holm controla la probabilidad de al menos un falso positivo.
-- Control de tamaño: los radiólogos califican más maligno lo más grande, así
-  que muchas medidas pueden "funcionar" solo porque correlacionan con el
-  diámetro. La Spearman parcial mide la asociación medida-grupo una vez
-  descontado el diámetro.
+La materia termina en "saco números y comparo". Con ~100 nódulos y ~30
+medidas hacen falta unas pocas herramientas de estadística (fuera de la
+materia, explicadas en una línea cada una):
+
+- Boxplots por grupo: la comparación visual, primero siempre.
+- Mann-Whitney U: ¿la medida tiende a ser mayor en un grupo? No supone
+  distribución normal (fracción de calcio, por ejemplo, es casi siempre 0).
+- AUC = U / (n1·n2): probabilidad de que un sospechoso al azar tenga un valor
+  mayor que un benigno al azar. 0,5 = no distingue; 1 = separa perfecto. Se
+  reporta max(AUC, 1-AUC) y en qué grupo es mayor.
+- Holm: con ~30 medidas, al 5 % esperaríamos ~1-2 "significativas" por pura
+  casualidad; Holm ajusta los p-valores para que eso no pase.
+- Control por tamaño: los radiólogos califican más maligno lo más grande, y
+  muchas medidas cambian con el tamaño. Dos controles (los del anteproyecto):
+    * estratos: repetir la comparación dentro de rangos de diámetro
+      (6-10, 10-20, >20 mm): si sigue separando con tamaños parecidos, aporta
+      algo más que el tamaño;
+    * Spearman parcial: correlación entre la medida y el grupo después de
+      "descontar" el diámetro (se ordenan los valores de menor a mayor,
+      se les resta la parte que se explica por el diámetro y se correlaciona
+      lo que queda). Cerca de 0 = lo que la medida decía del grupo era solo
+      tamaño.
 """
 import numpy as np
 import pandas as pd
 from scipy import stats
 
-from . import config as C
-
 META = {"paciente", "scan_id", "nodulo", "grupo", "conjunto", "aceptable", "dice", "jaccard",
         "concordancia_radiologos", "malignidad_mediana", "textura_mediana", "diametro_medio_mm",
-        "n_anotaciones", "espesor_mm", "pixel_mm", "indice_corte", "umbral_hu", "dice_otsu"}
+        "n_anotaciones", "espesor_mm", "pixel_mm", "indice_corte", "umbral_hu", "dice_otsu",
+        "n_radiologos_corte", "radio_cierre_mm", "pulmon_restringe"}
 
 
 def holm(p):
@@ -37,9 +46,10 @@ def holm(p):
 
 
 def spearman_parcial(x, y, z):
+    """Correlación de Spearman entre x e y controlando por z."""
     rx, ry, rz = (stats.rankdata(v) for v in (x, y, z))
     res = lambda a: a - np.polyval(np.polyfit(rz, a, 1), rz)  # noqa: E731
-    return stats.pearsonr(res(rx), res(ry))[0]
+    return float(stats.pearsonr(res(rx), res(ry))[0])
 
 
 def comparar_grupos(df, columnas=None, col_tamano="diametro_eq_mm"):
@@ -58,12 +68,13 @@ def comparar_grupos(df, columnas=None, col_tamano="diametro_eq_mm"):
         auc = u / (len(s) * len(b))
         fila = dict(medida=c, n_sosp=len(s), n_benig=len(b),
                     mediana_sosp=np.median(s), mediana_benig=np.median(b),
-                    auc=max(auc, 1 - auc), mayor_en="sospechoso" if auc >= 0.5 else "benigno",
-                    p=p)
-        if col_tamano in df and c != col_tamano:
+                    auc=max(auc, 1 - auc),
+                    mayor_en="sospechoso" if auc >= 0.5 else "benigno", p=p)
+        if col_tamano and col_tamano in df and c != col_tamano:
             z = df[col_tamano].to_numpy(float)
             ok2 = ok & np.isfinite(z)
-            fila["spearman_parcial_vs_tamano"] = spearman_parcial(x[ok2], y[ok2], z[ok2])
+            if ok2.sum() > 5 and np.std(x[ok2]) > 0:
+                fila["spearman_parcial_vs_tamano"] = spearman_parcial(x[ok2], y[ok2], z[ok2])
         filas.append(fila)
     res = pd.DataFrame(filas)
     if len(res):

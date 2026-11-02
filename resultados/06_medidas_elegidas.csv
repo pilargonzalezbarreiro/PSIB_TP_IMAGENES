@@ -1,0 +1,22 @@
+puntaje,medida,auc_entrenamiento,signo
+diámetro solo,diametro_eq_mm,0.8485331632653061,1.0
+interior sin tamaño,hu_asimetria,0.8549107142857143,-1.0
+interior sin tamaño,glcm_contraste,0.8491709183673469,-1.0
+interior sin tamaño,glcm_correlacion,0.8070790816326531,1.0
+interior sin tamaño,frac_calcio,0.768813775510204,-1.0
+interior sin tamaño,solidez,0.7477678571428572,-1.0
+interior,hu_asimetria,0.8549107142857143,-1.0
+interior,glcm_contraste,0.8491709183673469,-1.0
+interior,area_mm2,0.8485331632653061,1.0
+interior,glcm_correlacion,0.8070790816326531,1.0
+interior,frac_calcio,0.768813775510204,-1.0
+interior + entorno,hu_asimetria,0.8549107142857143,-1.0
+interior + entorno,glcm_contraste,0.8491709183673469,-1.0
+interior + entorno,area_mm2,0.8485331632653061,1.0
+interior + entorno,glcm_correlacion,0.8070790816326531,1.0
+interior + entorno,frac_calcio,0.768813775510204,-1.0
+entorno solo,anillo_int_hu_media,0.6801658163265306,1.0
+entorno solo,anillo_int_glcm_energia,0.6753826530612245,-1.0
+entorno solo,anillo_ext_glcm_cluster_shade,0.6737882653061225,1.0
+entorno solo,esqueleto_mm_por_mm_borde,0.6481186224489796,1.0
+entorno solo,anillo_int_glcm_homogeneidad,0.6466836734693877,-1.0

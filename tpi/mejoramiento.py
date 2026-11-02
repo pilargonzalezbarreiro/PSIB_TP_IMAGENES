@@ -1,12 +1,24 @@
-"""Mejoramiento: filtros clásicos de reducción de ruido.
+"""Mejoramiento: filtros de reducción de ruido (sección 3 de la materia).
 
-- Mediana 3x3: no lineal, quita ruido impulsivo y respeta bordes.
-- Gaussiano σ=1 px: lineal, pasa-bajos; suaviza ruido pero también bordes.
-- Wiener 5x5: adaptativo; suaviza más donde la varianza local es baja
-  (parénquima homogéneo) y menos en bordes (varianza alta).
+Regla de la materia: el filtro se elige según el TIPO de ruido.
+- Mediana 3x3 (no lineal): para ruido impulsivo (sal y pimienta); preserva bordes.
+- Gaussiano σ=1 px (lineal, pasa bajos): para ruido gaussiano / granulado.
+- Wiener 5x5 (adaptativo): suaviza mucho donde la zona es pareja (varianza
+  local baja = probablemente ruido) y poco donde hay bordes (varianza local
+  alta = probablemente estructura). Compromiso entre sacar ruido y conservar
+  bordes.
 
-Para evaluarlos con sentido, se aplican sobre una imagen con ruido conocido
-(la reconstrucción de baja dosis) y se compara contra la de referencia.
+El ruido de una tomografía reconstruida (y más el de baja dosis) es
+GRANULADO y está en toda la imagen, no son píxeles sueltos: a priori le
+corresponde el gaussiano; Wiener promete conservar mejor los bordes. Se
+comparan los tres con números en comparaciones/filtros.py.
+
+Se evalúan sobre una imagen con ruido conocido (la reconstrucción de baja
+dosis) contra la original, así "mejor" deja de ser una impresión visual.
+
+Importante (materia): el filtrado cambia la textura. Por eso estos filtros
+NO se aplican antes de medir las características: las medidas se hacen sobre
+la imagen original, igual para todos los nódulos.
 """
 import numpy as np
 from scipy import ndimage as ndi
@@ -21,11 +33,13 @@ def gaussiano(img, sigma=1.0):
 
 
 def filtro_wiener(img, ventana=5, ruido=None):
-    """Wiener adaptativo (misma fórmula que scipy.signal.wiener, pero sin
-    dividir por cero en zonas perfectamente uniformes, como el aire = -1000):
+    """Misma fórmula que scipy.signal.wiener, pero sin dividir por cero en
+    zonas perfectamente uniformes (el aire fuera del cuerpo, -1000 HU):
         salida = m + max(v - σ², 0) / max(v, σ²) · (img - m)
-    m, v: media y varianza locales; σ²: varianza del ruido (por defecto, la
-    media de las varianzas locales)."""
+    m, v = media y varianza locales en la ventana; σ² = varianza del ruido
+    (por defecto, el promedio de las varianzas locales).
+    Donde v ≈ σ² (zona pareja) la salida ≈ m (promedia); donde v >> σ²
+    (borde) la salida ≈ img (no toca)."""
     x = img.astype(np.float64)
     m = ndi.uniform_filter(x, ventana)
     v = np.maximum(ndi.uniform_filter(x ** 2, ventana) - m ** 2, 0)

@@ -32,13 +32,27 @@ CLEVEL_CONSENSO = 0.5    # píxel en consenso si lo marcó ≥50 % de los radió
 UMBRAL_HU = -400         # ajustar en entrenamiento entre -600 y -300
 RADIO_APERTURA_PX = 1    # 1-2 px: corta vasos finos adheridos
 RADIO_MAX_MM = 30.0      # freno a fugas hacia pared torácica / mediastino
+RADIO_CIERRE_PULMON_MM = 30.0  # cierre del pulmón: incorpora nódulos pegados a la pared (se ajusta en 04)
 
 # --- Características ------------------------------------------------------
 HU_CALCIO = 200
+# Un nódulo se considera "calcificado" si más del 2 % de su área supera
+# HU_CALCIO. Se usa para el análisis "--sin-calcio" (05 y 06): el calcio es el
+# signo de benignidad que los radiólogos y Lung-RADS ya usan, y la pregunta
+# clínica abierta son los nódulos SIN calcio (indeterminados).
+FRAC_CALCIO_MAX = 0.02
 HU_AIRE = -600
-VENTANA_TEXTURA = (-1000, 400)
-NIVELES_GLCM = 32
-DISTANCIAS_GLCM = (1, 2)
+# GLCM: la materia recomienda 8-16 niveles (con más, la matriz queda rala e
+# inestable, y un nódulo de 6 mm tiene apenas ~60 píxeles). Usamos 16.
+NIVELES_GLCM = 16
+# El rango que se reparte en esos 16 niveles tiene que cubrir los valores que
+# HAY en la región: con la ventana de pulmón entera [-1000, 400] cada nivel
+# valdría 87 HU y todo el interior de un nódulo sólido caería en 2-3 niveles
+# (textura "plana" para todos). Por eso un rango fijo por tipo de región,
+# igual para todos los nódulos (condición de la materia: mismos parámetros).
+VENTANA_TEXTURA_NODULO = (-500, 300)   # 50 HU por nivel; >300 (calcio) satura
+VENTANA_TEXTURA_ENTORNO = (-1000, 0)   # 62,5 HU por nivel; parénquima y vasos
+DISTANCIAS_GLCM = (1,)                 # textura fina -> distancia 1
 ANGULOS_GLCM = (0.0, 0.7853981633974483, 1.5707963267948966, 2.356194490614922)
 
 # --- Entorno --------------------------------------------------------------

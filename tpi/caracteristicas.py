@@ -197,3 +197,26 @@ def caracteristicas_interior(img_hu, mascara, pixel_mm=C.PIXEL_MM, mascara_cruda
     d["frac_aire"] = float((v < C.HU_AIRE).mean())
     d.update(textura_glcm(img_hu, mascara))
     return d
+
+
+def fraccion_calcio_robusta(img_hu, mascara, umbral=C.HU_CALCIO, area_min_px=3):
+    """Calcio que no se deja engañar por el ruido (propuesta, script 08).
+
+    Problema: con ruido de baja dosis, píxeles sueltos de tejido pasan los
+    200 HU por azar y un nódulo sin calcio "parece" calcificado.
+    Idea, con herramientas de la materia: el calcio de verdad forma MANCHAS
+    de varios píxeles; el ruido da píxeles SUELTOS.
+      1. mediana 3x3 (sección 3: el filtro para valores aislados, conserva bordes);
+      2. umbral > 200 HU dentro del nódulo;
+      3. etiquetado y eliminar objetos chicos por área (sección 5.5): solo
+         cuentan las manchas de al menos area_min_px píxeles.
+    Devuelve la fracción del área del nódulo que es calcio."""
+    from scipy import ndimage as ndi
+    from skimage import measure
+    if mascara.sum() == 0:
+        return float("nan")
+    cal = (ndi.median_filter(img_hu, size=3) > umbral) & mascara
+    lab = measure.label(cal, connectivity=2)
+    tam = np.bincount(lab.ravel())
+    tam[0] = 0
+    return float((tam[lab] >= area_min_px).sum() / mascara.sum())

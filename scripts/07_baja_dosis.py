@@ -60,7 +60,7 @@ import pandas as pd  # noqa: E402
 
 from tpi import compresion as Z  # noqa: E402
 from tpi import config as C  # noqa: E402
-from tpi.caracteristicas import caracteristicas_interior  # noqa: E402
+from tpi.caracteristicas import caracteristicas_interior, fraccion_calcio_robusta  # noqa: E402
 from tpi.datos import _recortar, _remuestrear, cargar_corte  # noqa: E402
 from tpi.entorno import caracteristicas_entorno, mascara_pulmon  # noqa: E402
 from tpi.estadistica import META  # noqa: E402
@@ -74,9 +74,10 @@ PATRON = re.compile(r"(?P<paciente>.+)_s(?P<scan_id>\d+)_n(?P<nodulo>\d+)$")
 
 # (nombre, tipo, parámetro). I0 = fotones por rayo. "dosis ×1" (I0 = 1e5) es
 # la referencia de la simulación; ×1/4, ×1/10 y ×1/20 son fracciones de esa
-# dosis. La simulación SUMA ruido al que ya trae la imagen real, así que la
-# escala comparable entre condiciones es el ruido medido en el parénquima
-# (columna ruido_hu), no el nombre.
+# dosis. La simulación SUMA ruido al que ya trae la imagen real (~28 HU), así
+# que lo comparable es el ruido AGREGADO (columna ruido_agregado_hu), no el
+# nombre. ruido_hu (MAD en parénquima entre -950 y -700 HU) se guarda pero
+# subestima con mucho ruido: los píxeles ruidosos se salen de esa ventana.
 CONDICIONES = [
     ("original", "original", None),
     ("FBP sin ruido", "fbp", None),
@@ -123,15 +124,27 @@ def procesar(args):
     m = PATRON.match(Path(ruta).stem)
     clave = dict(paciente=m["paciente"], scan_id=int(m["scan_id"]), nodulo=int(m["nodulo"]))
     semilla = zlib.crc32(Path(ruta).stem.encode())  # mismo ruido cada vez que se corre
-    filas = []
+    filas, ref = [], {}
+    pulmon_orig = mascara_pulmon(d["corte_completo_rem"])
     for nombre, tipo, param in CONDICIONES:
         img = degradar(d, tipo, param, semilla)
         d2 = como_si_fuera_original(d, img)
+        # Ruido AGREGADO por la condición: diferencia con la misma imagen sin
+        # ese ruido (la original para JPEG; la FBP sin ruido para las dosis,
+        # así la geometría de la reconstrucción se cancela), dentro del pulmón.
+        # Desvío robusto (MAD) para que los bordes no lo inflen.
+        if tipo == "original" or (tipo == "fbp" and param is None):
+            ref[tipo] = d2["corte_completo_rem"]
+        base = ref["fbp"] if tipo == "fbp" else ref["original"]
+        dif = (d2["corte_completo_rem"] - base)[pulmon_orig]
+        ruido_agregado = float(1.4826 * np.median(np.abs(dif - np.median(dif)))) if dif.size else np.nan
         seg, cruda = segmentar_nodulo(d2, umbral=T, devolver_cruda=True, radio_cierre_mm=R)
         fila = dict(**clave, condicion=nombre, ruido_hu=estimar_ruido_hu(d2["img"]),
+                    ruido_agregado_hu=ruido_agregado,
                     **evaluar(seg, d["consenso"], d["radiologos"]))
         if seg.sum() >= 5:
             fila.update(caracteristicas_interior(d2["img"], seg, mascara_cruda=cruda))
+            fila["frac_calcio_robusto"] = fraccion_calcio_robusta(d2["img"], seg)  # para el 08
             pulmon = _recortar(mascara_pulmon(d2["corte_completo_rem"]), tuple(d["semilla_completo"]),
                                d["img"].shape[0], False)
             fila.update(caracteristicas_entorno(d2["img"], seg, pulmon)[0])
@@ -214,7 +227,11 @@ def analizar(df, args):
           f"{' sin calcio' if args.sin_calcio else ''}")
 
     # a. segmentación
-    seg = (df.groupby("condicion").agg(ruido_hu=("ruido_hu", "median"), dice_medio=("dice", "mean"),
+    if "ruido_agregado_hu" not in df:
+        df["ruido_agregado_hu"] = np.nan
+    seg = (df.groupby("condicion").agg(ruido_agregado_hu=("ruido_agregado_hu", "median"),
+                                        frac_calcio_media=("frac_calcio", "mean"),
+                                        dice_medio=("dice", "mean"),
                                         aceptables=("aceptable", "mean")).reindex(ORDEN).dropna(how="all"))
     seg.to_csv(C.DIR_RESULTADOS / f"07_segmentacion{sufijo}.csv")
     print("\n== a. Segmentación en cada condición ==")
@@ -222,7 +239,7 @@ def analizar(df, args):
 
     # b. reproducibilidad
     medidas = [c for c in df.select_dtypes("number").columns
-               if c not in META and c not in {"ruido_hu", "scan_id", "nodulo"}]
+               if c not in META and c not in {"ruido_hu", "ruido_agregado_hu", "scan_id", "nodulo", "frac_calcio_robusto"}]
     base = df[df.condicion == "original"].set_index(claves)
     rep = {}
     for cond in seg.index:
@@ -273,8 +290,8 @@ def figura(seg, rep, cla, ruta):
     ax[0].plot(x, seg.dice_medio, "o-", label="Dice medio")
     ax[0].plot(x, seg.aceptables, "s--", label="fracción aceptable")
     a2 = ax[0].twinx()
-    a2.bar(x, seg.ruido_hu, alpha=0.2, color="gray")
-    a2.set_ylabel("ruido en parénquima (HU)", color="gray")
+    a2.bar(x, seg.ruido_agregado_hu, alpha=0.2, color="gray")
+    a2.set_ylabel("ruido agregado (HU)", color="gray")
     ax[0].set_xticks(x, seg.index, rotation=40, ha="right", fontsize=7)
     ax[0].set_ylim(0, 1)
     ax[0].legend(fontsize=7, loc="lower left")

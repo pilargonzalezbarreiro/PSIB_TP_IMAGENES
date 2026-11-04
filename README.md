@@ -33,6 +33,7 @@ No hace falta instalar un numpy viejo para pylidc: `tpi/compat.py` recrea los al
 | 6 | `python scripts/06_puntaje.py` | Puntaje que combina las mejores medidas: diámetro solo vs interior vs interior + entorno, con validación cruzada por paciente y curvas ROC. `--evaluar` usa el 20 % de evaluación (una sola vez, al final) | Sí |
 | 6c | `... 05_estadistica.py --sin-calcio` y `... 06_puntaje.py --sin-calcio` | Solo nódulos sin calcio: la pregunta clínica abierta (el calcio ya lo usan los radiólogos) | Sí |
 | 7 | `python scripts/07_baja_dosis.py` | ¿Los biomarcadores sobreviven a la baja dosis (tamizaje) y a la compresión? Re-adquiere cada corte en una tomografía simulada, corre todo el pipeline y mide segmentación, reproducibilidad (CCC) y AUC re-armado vs transferido. Lento (~15-30 min); después `--solo-analisis` | Sí |
+| 8 (plus) | `python scripts/08_propuesta.py` | Propuesta: cuánto ruido aguanta cada medida (CCC e ICC), un puntaje que solo usa medidas robustas y que separan, y un calcio robusto al ruido (mediana + etiquetado + área mínima). Lee los resultados del 07, no cambia nada del pipeline | Sí |
 
 ## Comparaciones (independientes, en cualquier orden salvo la primera)
 
